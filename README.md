@@ -1,2 +1,2 @@
 # Agriculture-Machine-Learning-
-We are student from UTHM student and we are proceed a machine learning project with the sector of agriculture
+As students from Universiti Tun Hussein Onn Malaysia (UTHM), we are conducting a research project that applies machine learning to agriculture.
