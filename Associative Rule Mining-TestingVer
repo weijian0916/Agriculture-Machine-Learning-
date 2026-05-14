@@ -1,0 +1,21 @@
+#Asscociation rule mining
+install.packages("arules")
+install.packages("arulesViz")
+library(arules)
+library(arulesViz)
+
+#selecting wanted var and convert to transactions
+target_var <- normalized_df[, c("Soil type", "Irrigation","Season", "yeild_class")]
+target_var[] <- lapply(target_var, as.factor) #set as factors telling algorithm they are category
+trans <- as(target_var, "transactions")
+
+#apriori
+rules <- apriori(trans, 
+                 parameter = list(supp = 0.01, conf = 0.5, minlen = 2), #minlen to limit minimum length of rules, like atleast 2 factors to rhs
+                 appearance = list(default="lhs", rhs="yeild_class=High")) #showing rhs with yeild_class=High only 
+
+#print all rules, sort by lift
+inspect(sort(rules, by = "lift"))
+
+# graph visualization
+plot(rules, method = "graph", engine = "htmlwidget"
