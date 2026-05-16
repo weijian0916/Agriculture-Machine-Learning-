@@ -1,0 +1,197 @@
+library(bnlearn)
+library(e1071)
+library(rpart)
+library(caret)
+library(randomForest)
+library(gbm)
+library(pROC)
+library(partykit)
+library(dplyr)
+library(tidyverse)
+library(randomForest)
+library(rattle)
+library(MLmetrics)
+library(nycflights13)
+library(gbm)
+library(glmnet)
+
+set.seed(123)
+
+data <- read_csv("C:\\Users\\weijian\\data_season.csv")
+df <- na.omit(data) 
+df_no_outliers <- df
+remove_outliers <- function(data, column) {
+    Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    
+    data <- data[data[[column]] >= lower_bound &
+                     data[[column]] <= upper_bound, ]
+    
+    return(data)
+}
+numeric_cols <- names(df_no_outliers)[sapply(df_no_outliers, is.numeric)]
+for(col in numeric_cols) {
+    df_no_outliers <- remove_outliers(df_no_outliers, col)
+}
+
+df_supervised <- df_no_outliers %>% select(-Year)
+df_supervised <- as.data.frame(df_supervised)
+names(df_supervised) <- gsub(" ", "_", names(df_supervised))
+
+cat("\n--- bayesian belief network ---\n")
+
+df_supervised <- df_supervised %>%
+  mutate(
+    Rainfall = cut(Rainfall, breaks = quantile(Rainfall, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE), labels = c("Low", "Medium", "High"), include.lowest = TRUE),
+    Temperature = cut(Temperature, breaks = quantile(Temperature, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE), labels = c("Low", "Medium", "High"), include.lowest = TRUE),
+    Humidity = cut(Humidity, breaks = quantile(Humidity, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE), labels = c("Low", "Medium", "High"), include.lowest = TRUE),
+    yields = cut(yields, breaks = quantile(yields, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE), labels = c("Low", "Medium", "High"), include.lowest = TRUE),
+    price = cut(price, breaks = quantile(price, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE), labels = c("Low", "Medium", "High"), include.lowest = TRUE),
+    Area = cut(Area, breaks = quantile(Area, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE), labels = c("Small", "Medium", "Large"), include.lowest = TRUE)
+  )
+
+df_supervised[] <- lapply(df_supervised, factor)
+bn_structure_perfect <- hc(df_supervised)
+plot(bn_structure_perfect)
+
+#add by myself about the relationship
+node_tiers <- list(
+  c("Location", "Season", "Area"),  
+  c("Soil_type", "Rainfall", "Temperature", "Humidity"), 
+  c("Crops", "Irrigation"), 
+  c("yields"), 
+  c("price")   
+)
+my_blacklist <- tiers2blacklist(node_tiers)
+manual_blacklist <- data.frame(
+  from = c("Location", "Season", "Area", "Area", "Season", "Location"),
+  to   = c("Season", "Location", "Location", "Season", "Area", "Area")
+)
+my_blacklist <- rbind(my_blacklist, manual_blacklist)
+my_whitelist <- data.frame(
+  from = c("Soil_type", "yields", "Area", "Irrigation"),
+  to   = c("Irrigation", "price", "yields", "yields") 
+)
+bn_structure_perfect <- hc(df_supervised, 
+                           blacklist = my_blacklist,
+                           whitelist = my_whitelist)
+plot(bn_structure_perfect)
+
+#svm
+set.seed(123)
+train_idx <- sample(nrow(df_supervised), 1000) #choose 1000 data to train
+train_data <- df_supervised[train_idx, ]
+test_data  <- df_supervised[-train_idx, ]
+svm_model <- svm(yields ~ ., data = train_data, 
+                 kernel = "radial", cost = 1, gamma = 0.1, scale = TRUE) #cost 1 is the most commom and scale is to standardlise
+summary(svm_model)
+
+preds <- predict(svm_model, test_data)
+conf_mat <- table(Predicted = preds, Actual = test_data$yields)
+print(conf_mat)
+print(confusionMatrix(preds, test_data$yields))
+
+# Automatic tuning try to find the best model and try to get the best gamma and cost
+tuned <- tune.svm(yields ~ ., data = train_data, gamma = 10^(-3:0), cost = 10^(0:2))
+print(tuned)
+best_model <- tuned$best.model
+best_pred <- predict(best_model, newdata = test_data)
+final_result <- confusionMatrix(best_pred, test_data$yields)
+print(final_result)
+#gamma=1 cost=1
+
+# ranfom forest
+rf_model <- randomForest(yields ~ ., data = train_data, ntree = 500)
+rf_pred <- predict(rf_model, newdata = test_data)
+confusionMatrix(rf_pred, test_data$yields)
+
+#rule based
+tree_model <- rpart(yields ~ ., data = train_data, method = "class",control = rpart.control(cp = 0.001))
+printcp(tree_model)
+best_cp <- tree_model$cptable[which.min(tree_model$cptable[,"xerror"]), "CP"]
+tree_pruned <- prune(tree_model, cp = best_cp)
+plot(as.party(tree_pruned), main="Pruned Decision Tree for yields Prediction")
+rules <- asRules(tree_pruned)
+print(rules)
+tree_preds <- predict(tree_pruned, test_data, type = "class")
+print(confusionMatrix(tree_preds, test_data$yields))
+
+
+#cross validation
+ctrl <- trainControl(method = "cv", number = 5, 
+                     classProbs = TRUE, 
+                     summaryFunction = multiClassSummary, 
+                     savePredictions = "final")
+rf_model  <- train(yields ~ ., data = df_supervised, method = "rf", trControl = ctrl)
+svm_model <- train(yields ~ ., data = df_supervised, method = "svmRadial", trControl = ctrl)
+knn_model <- train(yields ~ ., data = df_supervised, method = "knn", trControl = ctrl)
+
+resamples_list <- resamples(list(RF = rf_model, SVM = svm_model, KNN = knn_model))
+print(summary(resamples_list))
+
+
+set.seed(123)
+train_data$yields_binary <- as.factor(ifelse(train_data$yields == "High", "High", "Not_High"))
+test_data$yields_binary  <- as.factor(ifelse(test_data$yields == "High", "High", "Not_High"))
+rf_model_train <- randomForest(yields_binary ~ . - yields, data = train_data, ntree = 500)
+rf_prob_preds <- predict(rf_model_train, newdata = test_data, type = "prob")
+prob_high     <- rf_prob_preds[, "High"]
+roc_obj <- roc(test_data$yields_binary, prob_high, quiet = TRUE)
+plot(roc_obj, 
+     main = "ROC Curve: High Yields vs Not High", 
+     col = "red", 
+     lwd = 2)
+cat("Binary AUC (High vs Others):", round(auc(roc_obj), 3), "\n")
+
+#ensemble method
+rf <- train(yields ~ ., data = df_supervised, method = "rf", trControl = ctrl,
+            tuneGrid = expand.grid(mtry = 2:10))
+print(rf)
+plot(rf$finalModel, main = "Out-of-Bag Error vs Trees")
+
+
+gbm_model <- train(
+  yields ~ .,
+  data = df_supervised,
+  method = "gbm",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    n.trees = 100,
+    interaction.depth = 2,
+    shrinkage = 0.1,
+    n.minobsinnode = 10
+  ),
+  verbose = FALSE
+)
+
+print(gbm_model)
+plot(varImp(gbm_model), main = "GBM Variable Importance")
+
+gbm_model_tuned <- train(
+  yields ~ .,
+  data = df_supervised,
+  method = "gbm",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    n.trees = c(100, 300, 500),
+    interaction.depth = c(2, 4, 6),
+    shrinkage =c(0.01, 0.1),
+    n.minobsinnode = c(10, 20)
+  ),
+  verbose = FALSE
+)
+print(gbm_model_tuned)
+plot(varImp(gbm_model_tuned), main = "GBM_tuned Variable Importance")
+comp <- resamples(list(RF = rf_model, GBM = gbm_model_tuned))
+bwplot(comp, metric = "Accuracy", main = "Ensemble Comparison: RF vs GBM_tuned")
+
+set.seed(123)
+holdout_n <- min(30, nrow(test_data)) 
+holdout <- sample(nrow(test_data), holdout_n)
+pred_rf <- predict(rf_model, test_data[holdout, ])
+pred_gbm <- predict(gbm_model, test_data[holdout, ])
+print(table(RF = pred_rf, GBM = pred_gbm, Actual = test_data$yields[holdout]))
