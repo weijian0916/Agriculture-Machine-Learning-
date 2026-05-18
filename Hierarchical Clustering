@@ -1,0 +1,38 @@
+# --- Hierarchical Clustering ---
+# You can just copy and paste this right below your groupmate's DBSCAN code.
+
+#  Calculate the distance matrix
+# We use the normalized numerical data excluding "yields" and "Year"
+dist_matrix <- dist(normalized_df[, num_cols2], method = "euclidean")
+
+#  Perform Hierarchical Clustering
+# "ward.D2" is a great method that creates compact, spherical clusters similar to K-Means
+hc_model <- hclust(dist_matrix, method = "ward.D2")
+
+#  Plot the Dendrogram
+# Using the 'factoextra' package your groupmate already installed
+fviz_dend(hc_model, k = 4,                 # Cut into 4 clusters to match K-Means
+          cex = 0.5,                       # Label text size
+          color_labels_by_k = TRUE,        # Color labels by their cluster
+          rect = TRUE,                     # Add a rectangle around clusters for visibility
+          main = "Hierarchical Clustering Dendrogram (k=4)")
+
+#  Assign clusters to the original dataset
+hc_clusters <- cutree(hc_model, k = 4)
+df_no_outliers$Final_Cluster <- as.factor(hc_clusters)
+
+#  Generate Insights (Matching your groupmate's exact dplyr format!)
+final_insight_hc <- df_no_outliers %>% 
+  group_by(Final_Cluster) %>% 
+  summarise( 
+    Count = n(), 
+    Avg_Area = round(mean(Area), 1), 
+    Avg_Rainfall = round(mean(Rainfall), 1), 
+    Avg_Temperature = round(mean(Temperature), 1), 
+    Avg_Humidity = round(mean(Humidity), 1), 
+    Avg_Price = round(mean(price), 1), 
+    Avg_Yields = round(mean(yields), 1) 
+  )
+
+print("--- Hierarchical Clustering Insights ---")
+print(as.data.frame(final_insight_hc))
