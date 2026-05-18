@@ -1,0 +1,52 @@
+# --- Algorithm 3: Grid-Based Clustering ---
+# We will build the grid manually to demonstrate the theory taught in class!
+
+# Define the grid resolution (number of bins per feature)
+# This divides the space into a finite number of cells
+num_bins <- 5
+
+#  Create the Grid: Apply binning to the normalized numerical data
+grid_df <- normalized_df[, num_cols2] %>%
+  mutate(across(everything(), ~ as.numeric(cut(., breaks = num_bins))))
+
+#  Create a unique Grid Cell ID for every point based on its grid coordinates
+grid_df$Grid_ID <- apply(grid_df, 1, paste, collapse = "-")
+
+#  Calculate the density (number of points) inside each individual Grid Cell
+grid_density <- grid_df %>%
+  group_by(Grid_ID) %>%
+  summarise(Density = n())
+
+#  Define a density threshold (e.g., minimum 5 points to be a valid cluster)
+density_threshold <- 5
+
+#  Find dense grid cells and assign them a Cluster ID
+dense_grids <- grid_density %>%
+  filter(Density >= density_threshold) %>%
+  mutate(Final_Cluster_Grid = as.character(row_number())) 
+
+#  Map the clusters back to your original dataset
+df_no_outliers$Grid_ID <- grid_df$Grid_ID
+
+df_no_outliers <- df_no_outliers %>%
+  left_join(dense_grids %>% select(Grid_ID, Final_Cluster_Grid), by = "Grid_ID") %>%
+  # If a point falls in a grid cell that isn't dense, label it as "Noise"
+  mutate(Final_Cluster_Grid = ifelse(is.na(Final_Cluster_Grid), "Noise", Final_Cluster_Grid),
+         Final_Cluster_Grid = as.factor(Final_Cluster_Grid)) %>%
+  select(-Grid_ID) # Remove the temporary Grid_ID column
+
+# Generate Insights (Matching your groupmate's exact dplyr format!)
+final_insight_grid <- df_no_outliers %>% 
+  group_by(Final_Cluster_Grid) %>% 
+  summarise( 
+    Count = n(), 
+    Avg_Area = round(mean(Area), 1), 
+    Avg_Rainfall = round(mean(Rainfall), 1), 
+    Avg_Temperature = round(mean(Temperature), 1), 
+    Avg_Humidity = round(mean(Humidity), 1), 
+    Avg_Price = round(mean(price), 1), 
+    Avg_Yields = round(mean(yields), 1) 
+  )
+
+print("--- Grid-Based Clustering Insights ---")
+print(as.data.frame(final_insight_grid))
