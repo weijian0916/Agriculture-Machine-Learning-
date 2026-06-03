@@ -17,6 +17,7 @@ colSums(is.na(data))
 new_df <- na.omit(data)
 
 # 4. Create yield class
+#yield_class
 new_df$yield_class <- cut(
      new_df$yields,
      breaks = quantile(new_df$yields,
@@ -25,8 +26,40 @@ new_df$yield_class <- cut(
      include.lowest = TRUE
  )
 
+#rainfall_class
+new_df$Rainfall_class <- cut(
+  normalized_df$Rainfall,
+  breaks = quantile(normalized_df$Rainfall,
+                    probs = c(0, 0.33, 0.66, 1)),
+  labels = c("Low", "Medium", "High"),
+  include.lowest = TRUE)
+
+#temperature_class
+new_df$Temperature_class <- cut(
+  new_df$Temperature,
+  breaks = quantile(new_df$Temperature,
+                    probs = c(0, 0.33, 0.66, 1)),
+  labels = c("Low", "Medium", "High"),
+  include.lowest = TRUE)
+
+#humidity_class
+new_df$Humidity_class <- cut(
+  new_df$Humidity,
+  breaks = quantile(new_df$Humidity,
+                    probs = c(0, 0.33, 0.66, 1)),
+  labels = c("Low", "Medium", "High"),
+  include.lowest = TRUE)
+
+#area_class
+new_df$Area_class <- cut(
+  new_df$Area,
+  breaks = quantile(new_df$Area, probs = seq(0, 1, length.out = 4)),
+  labels = c("Small", "Medium", "Large"),
+  include.lowest = TRUE)
+
 # Convert to factor
 new_df$yield_class <- as.factor(new_df$yield_class)
+
 
 # 5. Normalization (Z-score Normalization for numerical columns)
 normalized_df <- new_df
@@ -60,3 +93,8 @@ remove_outliers <- function(data, column) {
 for(col in names(df_no_outliers)[num_cols]) {
     df_no_outliers <- remove_outliers(df_no_outliers, col)
 }
+
+# 7. Data Preparation for Supervised Learning
+df_supervised <- df_no_outliers %>% select(-Year,-yield_class) # Remove Year and Yield_class columns
+df_supervised <- as.data.frame(df_supervised)
+names(df_supervised) <- gsub(" ", "_", names(df_supervised)) # Replace the columns name into new name without space
