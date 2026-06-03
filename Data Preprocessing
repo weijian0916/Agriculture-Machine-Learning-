@@ -28,8 +28,8 @@ new_df$yield_class <- cut(
 
 #rainfall_class
 new_df$Rainfall_class <- cut(
-  normalized_df$Rainfall,
-  breaks = quantile(normalized_df$Rainfall,
+  new_df$Rainfall,
+  breaks = quantile(new_df$Rainfall,
                     probs = c(0, 0.33, 0.66, 1)),
   labels = c("Low", "Medium", "High"),
   include.lowest = TRUE)
